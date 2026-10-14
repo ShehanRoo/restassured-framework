@@ -10,7 +10,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <restassured.version>6.0.1</restassured.version>
-    <allure.version>2.35.5</allure.version>
+    <allure.version>3.0.0</allure.version>
     <allure.cli.version>2.46.1</allure.cli.version>
     <junit.version>5.13.4</junit.version>
     <jackson.version>2.22.3</jackson.version>
