@@ -1,0 +1,86 @@
+name: API tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: api-tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  reporting-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Run deliberate failure and require a failing exit status
+        shell: bash
+        run: |
+          set +e
+          ./mvnw -B -ntp -C clean test -Pfailure-demo -Dtest=ReportingFailureDemoTest
+          test_status=$?
+          set -e
+          test "$test_status" -eq 1
+      - name: Generate standalone failure report
+        run: python3 scripts/report.py
+      - name: Require actual failed field step and sanitized exchange evidence
+        id: evidence
+        if: ${{ always() }}
+        run: python3 scripts/verify_evidence.py --require-failure --purge-on-failure
+      - name: Upload reporting-regression evidence
+        if: ${{ always() && steps.evidence.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: reporting-regression-${{ github.run_id }}
+          path: |
+            target/allure-report/index.html
+            target/allure-report.zip
+            target/allure-results/
+            target/surefire-reports/
+          if-no-files-found: error
+          retention-days: 7
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Compile, format, test and analyze
+        run: ./mvnw -B -ntp -C clean verify
+      - name: Generate portable HTML even when tests fail
+        if: ${{ always() }}
+        run: python3 scripts/report.py
+      - name: Report path and quarantine safety
+        if: ${{ always() }}
+        run: python3 scripts/test_reporting_safety.py
+      - name: Verify evidence sanitization
+        id: evidence
+        if: ${{ always() }}
+        run: python3 scripts/verify_evidence.py --purge-on-failure
+      - name: Upload private run artifacts
+        if: ${{ always() && steps.evidence.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: api-report-${{ github.run_id }}
+          path: |
+            target/allure-report/index.html
+            target/allure-report.zip
+            target/allure-results/
+            target/surefire-reports/
+          if-no-files-found: error
+          retention-days: 7

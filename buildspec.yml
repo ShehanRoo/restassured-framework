@@ -1,0 +1,32 @@
+version: 0.2
+env:
+  shell: bash
+phases:
+  install:
+    runtime-versions:
+      java: corretto21
+      python: 3.12
+  build:
+    commands:
+      # Generates the HTML/ZIP even after test failure, preserving the failed exit code.
+      - python3 scripts/run_and_report.py
+    finally:
+      # CodeBuild attempts artifact upload even after failure; purge unsafe evidence first.
+      - python3 scripts/verify_evidence.py --purge-on-failure
+reports:
+  api-tests:
+    files:
+      - 'TEST-*.xml'
+    base-directory: target/surefire-reports
+    file-format: JUNITXML
+artifacts:
+  files:
+    - target/allure-report/index.html
+    - target/allure-report.zip
+    - 'target/allure-results/**/*'
+    - 'target/surefire-reports/TEST-*.xml'
+  discard-paths: no
+cache:
+  paths:
+    # Public dependencies only. Never cache Maven settings or secret files.
+    - '/root/.m2/repository/**/*'

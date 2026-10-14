@@ -1,0 +1,5 @@
+[
+  {"name":"Response assertion failures","matchedStatuses":["failed"],"messageRegex":".*Response assertion failed.*"},
+  {"name":"Schema and protocol failures","matchedStatuses":["failed"],"messageRegex":".*(schema|contract|JSON content type|Undeclared response status|must have no body).*"},
+  {"name":"Transport or configuration failures","matchedStatuses":["broken"],"messageRegex":".*(Request could not complete|configuration|API_BASE_URL).*"}
+]
