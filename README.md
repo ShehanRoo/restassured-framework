@@ -30,6 +30,7 @@ The final outputs are:
 | `target/allure-report.zip` | ZIP containing only `index.html`, suitable for attaching to email |
 | `target/surefire-reports/` | JUnit XML and text results for CI |
 | `target/spotbugsXml.xml` | Static-analysis results |
+| `target/bom.json`, `target/bom.xml` | CycloneDX dependency inventory, including test dependencies |
 
 Open `index.html` in a browser directly. Allure's `--single-file` mode embeds its assets and test evidence. Email recipients should download the attachment, extract the ZIP, and open the HTML locally. Email clients generally do not execute interactive HTML in the message body; some organizations block HTML/ZIP attachments or impose size limits. Use an approved private artifact link if required. This framework creates the artifact; it does not send email or collect SMTP credentials.
 
@@ -43,6 +44,7 @@ src/main/java/com/example/api/
   contract/EndpointContract.java           method, path, request and per-status response contracts
   contract/BodyContract.java               JSON schema or explicit absent-body contract
   contract/SchemaChecks.java               mandatory local JSON Schema validation
+  contract/ParameterChecks.java            bounded path/query validation before transport
   client/ApiClient.java                    central transport, per-request specification
   client/ApiResponse.java                  safe status and JSON-pointer business assertions
   reporting/Evidence.java                  fail-closed evidence sanitization and size limits
@@ -56,6 +58,7 @@ src/test/java/com/example/api/
   tests/ReportingFailureDemoTest.java      intentional failure, opt-in only
   tests/ExternalUserApiTest.java           opt-in read-only live example
 src/test/resources/schemas/               strict Draft-7 schemas
+src/main/resources/schemas/               reusable deny-all parameter schema
 src/test/resources/junit-platform.properties
 scripts/                                 portable run, report and evidence-check commands
 config/allure-categories.json             failure categories copied during report generation
@@ -64,6 +67,7 @@ buildspec.yml                            AWS CodeBuild verification, JUnit repor
 docs/CODEBUILD.md                         AWS setup, IAM, secrets, artifacts and troubleshooting
 docs/SECURITY_REVIEW.md                    Nara review scope, outcome and verification evidence
 docs/SECURE_CODING.md                     secure coding and user requirements for LLM checks
+docs/GUIDELINES_ASSESSMENT.md             supplied v1.0.0 guidelines, coverage and external obligations
 AGENTS.md                                concise instructions for an LLM maintainer
 ```
 
@@ -83,7 +87,7 @@ Framework code lives in `src/main` so clients and contracts can be reused. Examp
 
 ## Contracts and schema validation
 
-Define **every** expected response status, including errors. This framework currently supports JSON APIs and bodyless operations. JSON Schema validates bodies; method/path, status and media-type checks enforce protocol behavior. Query parameters and headers do not have separate JSON schemas in this starter. Add typed parameter models and validation for your API's required query/header rules before sending those operations. XML, file upload, streaming and multipart APIs need an explicit new contract implementation; do not silently bypass validation for them.
+Define **every** expected response status, including errors. This framework currently supports JSON APIs and bodyless operations. JSON Schema validates bodies and path/query maps; method/path, status and media-type checks enforce protocol behavior. Headers are fixed internally (JSON media types, injected bearer token and generated request ID); new caller-supplied headers, cookies, XML, uploads, streaming and multipart APIs need explicit validation contracts before use.
 
 ```java
 var create = new EndpointContract(
@@ -97,6 +101,17 @@ response.assertStatus(201).assertField("/id", 7);
 ```
 
 `execute(contract, body, pathParameters, queryParameters)` supports templated paths such as `/users/{id}`. Use path parameters instead of concatenating dynamic path values. `ApiClient` creates a fresh REST Assured specification for each exchange. It attaches request evidence, validates the request, sends it, attaches the response, validates the response, then returns the assertion wrapper. A malformed request is rejected with evidence and no network call. An undeclared response status fails with response evidence already attached.
+
+The five-argument `EndpointContract` constructor denies all path/query parameters. For parameterized
+operations, use its seven-argument form, adding path and query `BodyContract.json(...)` schemas after
+the response map. Each schema must declare `type: object`, `additionalProperties: false` and
+explicit property names; `patternProperties` is rejected before transport. For example, `UserContracts.GET` uses
+`schemas/user-path.json` (required integer `id`, range 1–2147483647) and
+`schemas/no-parameters.json` (no query keys). Missing/unknown parameters and numeric strings fail
+before transport. Values must be standard non-null JSON scalars; maps have at most 32 keys, values
+at most 2048 characters with no controls, and path segments 1–200 ASCII letters/digits/underscore/hyphen.
+Lists and arbitrary objects are rejected; explicitly extend the contract for other parameter formats.
+The deny-all schema ships in `src/main/resources`; domain schemas remain in `src/test/resources`.
 
 Schemas must be classpath resources under `schemas/`, declare `http://json-schema.org/draft-07/schema#`, and be self-contained. `$ref` and `$id` are deliberately rejected to prevent unexpected remote schema retrieval. Bundle reusable schemas into each endpoint document before use. Use `required`, bounded strings/numbers, and `additionalProperties: false` where the contract is strict. If an API permits additional fields, encode that intentionally. Schema constraints do not replace business assertions or authorization tests.
 
@@ -141,11 +156,18 @@ export API_BASE_URL=https://api.example.test
 python3 scripts/report.py
 ```
 
-Configuration rejects HTTP except literal loopback hosts, URI credentials, query strings, fragments and base paths. TLS certificate/hostname validation stays enabled; redirects are disabled so credentials cannot be forwarded to a different origin. For private CAs, use an organization-managed Java truststore rather than disabling TLS validation. The credential is not exposed by `toString()` or a public getter. Invalid environment parsing produces a generic error without echoing values.
+Configuration rejects HTTP except loopback mock hosts (`127.0.0.1`, `[::1]`, `localhost`), URI credentials, query strings, fragments and base paths. TLS certificate/hostname validation stays enabled; redirects and underlying HTTP retries are disabled. For private CAs, use an organization-managed Java truststore rather than disabling TLS validation. Bearer tokens must use bounded bearer syntax (at most 8192 characters); credentials are not exposed by `toString()` or a public getter. Invalid environment parsing produces a generic error without echoing values.
 
 ## Evidence, failed assertions and privacy
 
 Allure integration uses `allure-jupiter`, the Allure lifecycle API and a custom REST Assured filter. It deliberately avoids the stock raw `AllureRestAssured` attachment filter. Explicit `Allure.step` calls work without AspectJ or Java agents.
+
+Each exchange sends an independently generated UUID in `X-Request-ID`. Sanitized request, response
+and transport-failure attachments share that UUID for correlation. Server-provided IDs and user IDs
+remain withheld. Allure supplies step timing/status; centralized service logs and distributed tracing
+require the target system's observability setup.
+Scalar expected/actual evidence uses JSON literals with escaped controls. Unicode formatting/bidi
+and line/paragraph separators are escaped so server values cannot spoof report labels or display order.
 
 Evidence follows an allowlist: unknown body fields are replaced with `[REDACTED]`. Approved container fields are recursively sanitized; scalar array entries are withheld. Sensitive field-name patterns (passwords, tokens, cookies, names, emails, addresses and others) remain redacted even if added to the allowlist. Only a fixed set of header names is retained. Header values are redacted except normalized JSON media types; all media-type parameters are omitted. Unknown JSON field names are also withheld. Path/query values are omitted; the static endpoint template remains visible. Non-JSON/malformed or oversized bodies are omitted. Text attachments are capped at 32 KiB characters and marked when truncated. All attachments use text MIME types, so server-provided HTML is never attached as executable HTML.
 
@@ -172,6 +194,17 @@ Run `clean verify` again after the demo to restore a passing suite. Reports may 
 ```sh
 ./mvnw -B -ntp -C -Psecurity verify
 ```
+
+Every `package`/`verify` also generates CycloneDX 1.6 JSON/XML SBOMs under `target/`, including
+test dependencies. CI retains these inventories with the private artifacts. Review their licenses
+against your organization's policy and vulnerabilities before release. SBOMs do not cover every
+build-plugin/CLI dependency and do not prove license approval or absence of CVEs.
+
+The supplied **Secure Coding Guidelines v1.0.0** are mapped section by section in
+[the assessment](docs/GUIDELINES_ASSESSMENT.md). Framework gaps were fixed locally; MFA, RBAC,
+tenant isolation, session/password/database controls, cloud policies, signing, secret/license scans
+and deployed security tests still require service or release-owner evidence. Do not infer full
+compliance from mock tests or source review.
 
 A skipped or unavailable scan is **not** a clean vulnerability verdict. Investigate CVEs and update dependencies; do not add broad suppressions to turn the job green. Dependabot checks Maven and GitHub Actions weekly. Versions are pinned in the POM; update compatible groups together and run schema, evidence and failure-demo checks. This starter uses the Jackson-2-compatible schema-validator line; migration to a newer validator major requires an API/JSON-library compatibility review. Network access is limited to test endpoints and dependency/security data sources, not report telemetry configured by this framework.
 

@@ -5,6 +5,8 @@ import static com.github.tomakehurst.wiremock.client.WireMock.*;
 
 import com.example.api.client.ApiClient;
 import com.example.api.config.ApiConfig;
+import com.example.api.contract.BodyContract;
+import com.example.api.contract.EndpointContract;
 import com.example.api.support.MockApi;
 import java.util.Map;
 import java.util.Set;
@@ -32,8 +34,17 @@ class ReportingFailureDemoTest {
                       .withBody("{\"id\":7,\"name\":\"" + canary + "\",\"active\":true}")));
       var client =
           new ApiClient(new ApiConfig(mock.origin(), canary, 5000, Set.of("id", "active")));
+      var demoContract =
+          new EndpointContract(
+              GET.name(),
+              GET.method(),
+              GET.path(),
+              GET.request(),
+              GET.responses(),
+              GET.pathParameters(),
+              BodyContract.json("schemas/demo-query.json"));
       client
-          .execute(GET, null, Map.of("id", 7), Map.of("token", canary))
+          .execute(demoContract, null, Map.of("id", 7), Map.of("token", canary))
           .assertStatus(200)
           .assertField("/id", 999);
     }

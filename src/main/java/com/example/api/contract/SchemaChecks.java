@@ -15,6 +15,19 @@ public final class SchemaChecks {
 
   public static void validate(
       String direction, BodyContract contract, String body, String contentType) {
+    validate(direction, contract, body, contentType, false);
+  }
+
+  public static void validateParameters(BodyContract contract, String body) {
+    validate("Request", contract, body, "application/json", true);
+  }
+
+  private static void validate(
+      String direction,
+      BodyContract contract,
+      String body,
+      String contentType,
+      boolean parameters) {
     if (!Set.of("Request", "Response").contains(direction)) {
       throw new IllegalArgumentException("Schema direction must be Request or Response");
     }
@@ -45,6 +58,13 @@ public final class SchemaChecks {
             if (!"http://json-schema.org/draft-07/schema#"
                 .equals(definition.path("$schema").asText())) {
               throw new IllegalStateException("Schemas must declare Draft 7");
+            }
+            if (parameters
+                && (!"object".equals(definition.path("type").asText())
+                    || !definition.path("additionalProperties").isBoolean()
+                    || definition.path("additionalProperties").booleanValue()
+                    || definition.has("patternProperties"))) {
+              throw new IllegalStateException("Parameter schemas must deny undeclared keys");
             }
             schema =
                 JsonSchemaFactory.getInstance(SpecVersion.VersionFlag.V7).getSchema(definition);

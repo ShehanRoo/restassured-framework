@@ -78,6 +78,8 @@ jobs:
         with:
           name: api-report-${{ github.run_id }}
           path: |
+            target/bom.json
+            target/bom.xml
             target/allure-report/index.html
             target/allure-report.zip
             target/allure-results/

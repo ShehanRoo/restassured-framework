@@ -30,8 +30,10 @@ public final class ApiConfig {
     if (timeoutMs < 100 || timeoutMs > 60000) {
       throw new IllegalArgumentException("API_TIMEOUT_MS must be between 100 and 60000");
     }
-    if (token != null && (token.contains("\r") || token.contains("\n"))) {
-      throw new IllegalArgumentException("API_TOKEN contains an invalid header character");
+    if (token != null
+        && !token.isEmpty()
+        && (token.length() > 8192 || !token.matches("[a-zA-Z0-9._~+/-]+=*"))) {
+      throw new IllegalArgumentException("API_TOKEN must be a bounded bearer credential");
     }
     this.baseUri = baseUri;
     this.token = token == null ? "" : token;

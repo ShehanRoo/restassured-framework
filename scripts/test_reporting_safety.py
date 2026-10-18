@@ -10,6 +10,12 @@ import verify_evidence
 
 
 class ReportingSafetyTest(unittest.TestCase):
+    def test_evidence_rejects_raw_controls_and_accepts_escaped_literals(self):
+        for value in ["\r", "\t", "\x1b", "\x00", "\u202e", "\u2028", "\u2029"]:
+            with self.subTest(codepoint=ord(value)), self.assertRaises(AssertionError):
+                verify_evidence.verify_attachment_text("Actual: " + value)
+        verify_evidence.verify_attachment_text('Expected: "synthetic\\r\\n\\u202e"\nActual: 7')
+
     def test_output_outside_target_is_rejected_before_modification(self):
         with tempfile.TemporaryDirectory() as directory:
             sentinel = Path(directory) / "keep.txt"

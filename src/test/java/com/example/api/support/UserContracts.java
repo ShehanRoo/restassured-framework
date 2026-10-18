@@ -24,12 +24,16 @@ public final class UserContracts {
           Method.GET,
           "/users/{id}",
           BodyContract.empty(),
-          Map.of(200, USER, 401, ERROR, 403, ERROR, 404, ERROR));
+          Map.of(200, USER, 401, ERROR, 403, ERROR, 404, ERROR),
+          BodyContract.json("schemas/user-path.json"),
+          BodyContract.json("schemas/no-parameters.json"));
   public static final EndpointContract DELETE =
       new EndpointContract(
           "Delete user",
           Method.DELETE,
           "/users/{id}",
           BodyContract.empty(),
-          Map.of(204, BodyContract.empty(), 404, ERROR));
+          Map.of(204, BodyContract.empty(), 404, ERROR),
+          BodyContract.json("schemas/user-path.json"),
+          BodyContract.json("schemas/no-parameters.json"));
 }

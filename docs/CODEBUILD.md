@@ -48,6 +48,7 @@ Artifacts retain these relative paths:
 - `target/allure-report.zip`: extract and open locally, or attach using an approved email process.
 - `target/allure-results/`: sanitized Allure source evidence.
 - `target/surefire-reports/TEST-*.xml`: CI test results.
+- `target/bom.json` and `target/bom.xml`: CycloneDX dependency inventories, including test dependencies.
 
 The artifact-upload phase is attempted even when the build fails, as documented in
 [AWS build-phase transitions](https://docs.aws.amazon.com/codebuild/latest/userguide/view-build-details-phases.html).
@@ -55,6 +56,9 @@ An early compilation/install failure may have no test results or report to uploa
 CodeBuild artifact ZIP, then open the contained HTML or extract the inner report ZIP. Keep S3 public
 access blocked, enable encryption, restrict download access and set artifact/cache lifecycle policies.
 Do not publish Allure output to a public S3 website.
+Keep SBOMs with private release evidence; review vulnerability and license metadata before release.
+Signing/verification, organization-approved secret/license scans, network policies and deployed
+DAST/IAST remain protected pipeline responsibilities; this buildspec does not prove those controls.
 
 ## Native test-report permissions
 

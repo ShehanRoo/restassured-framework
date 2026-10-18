@@ -4,6 +4,7 @@ import com.example.api.config.ApiConfig;
 import com.example.api.contract.BodyContract;
 import com.example.api.contract.EndpointContract;
 import com.example.api.contract.JsonSupport;
+import com.example.api.contract.ParameterChecks;
 import com.example.api.contract.SchemaChecks;
 import com.example.api.reporting.Evidence;
 import com.example.api.reporting.EvidenceFilter;
@@ -16,6 +17,9 @@ import io.restassured.response.Response;
 import io.restassured.specification.RequestSpecification;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
+import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.impl.client.DefaultHttpRequestRetryHandler;
 
 /** The only transport entry point. Contracts and evidence cannot be accidentally omitted. */
 public final class ApiClient {
@@ -46,9 +50,12 @@ public final class ApiClient {
     return Allure.step(
         contract.method() + " " + contract.name(),
         () -> {
+          String requestId = UUID.randomUUID().toString();
           evidence.attach(
               "HTTP request",
-              "Method: "
+              "Request ID: "
+                  + requestId
+                  + "\nMethod: "
                   + contract.method()
                   + "\nPath template: "
                   + contract.path()
@@ -58,6 +65,8 @@ public final class ApiClient {
                   + "\n\n"
                   + evidence.body(payload));
           SchemaChecks.validate("Request", contract.request(), payload, "application/json");
+          Map<String, ?> safePath = ParameterChecks.validate(contract, pathParameters, true);
+          Map<String, ?> safeQuery = ParameterChecks.validate(contract, queryParameters, false);
           Response response;
           try {
             RequestSpecification request =
@@ -68,18 +77,28 @@ public final class ApiClient {
                             .redirect(RedirectConfig.redirectConfig().followRedirects(false))
                             .httpClient(
                                 HttpClientConfig.httpClientConfig()
+                                    .httpClientFactory(
+                                        () -> {
+                                          // REST Assured requires the legacy AbstractHttpClient
+                                          // API.
+                                          DefaultHttpClient client = new DefaultHttpClient();
+                                          client.setHttpRequestRetryHandler(
+                                              new DefaultHttpRequestRetryHandler(0, false));
+                                          return client;
+                                        })
                                     .setParam("http.connection.timeout", config.timeoutMs())
                                     .setParam("http.socket.timeout", config.timeoutMs())
                                     .setParam(
                                         "http.connection-manager.timeout",
                                         (long) config.timeoutMs())))
                     .accept("application/json")
-                    .filter(new EvidenceFilter(evidence));
+                    .header("X-Request-ID", requestId)
+                    .filter(new EvidenceFilter(evidence, requestId));
             config.authorize(request);
             if (contract.request().hasBody()) {
               request.contentType("application/json").body(payload);
             }
-            request.pathParams(pathParameters).queryParams(queryParameters);
+            request.pathParams(safePath).queryParams(safeQuery);
             response = request.request(contract.method(), contract.path());
           } catch (Exception exception) {
             throw new IllegalStateException(

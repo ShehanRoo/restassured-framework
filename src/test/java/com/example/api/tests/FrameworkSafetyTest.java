@@ -238,6 +238,57 @@ class FrameworkSafetyTest {
   }
 
   @Test
+  void formattingCharacterExpansionRemainsWithinAttachmentBudget() throws Exception {
+    Evidence evidence = new Evidence(ApiConfig.local(URI.create("http://127.0.0.1")));
+    String display = evidence.body(JsonSupport.serialize(Map.of("code", "\u200b".repeat(999_000))));
+    assertTrue(display.endsWith("\n[truncated]"));
+    assertTrue(display.length() <= 32_768 + "\n[truncated]".length());
+    assertFalse(display.contains("\u200b"));
+    assertTrue(display.contains("\\u200b"));
+  }
+
+  @Test
+  void scalarAssertionEvidenceEscapesLineTerminalAndBidiControls() throws Exception {
+    Evidence evidence = new Evidence(ApiConfig.local(URI.create("http://127.0.0.1")));
+    String value = "synthetic\r\nActual: spoofed\t\u001b[31m\u202e\u2028\u2029";
+    String display = evidence.value("/code", value);
+    assertTrue(display.startsWith("\"synthetic\\r\\nActual: spoofed\\t\\u001B"));
+    assertTrue(display.contains("\\u202e\\u2028\\u2029"));
+    assertFalse(
+        display
+            .codePoints()
+            .anyMatch(
+                point ->
+                    Character.isISOControl(point)
+                        || Character.getType(point) == Character.FORMAT
+                        || Character.getType(point) == Character.LINE_SEPARATOR
+                        || Character.getType(point) == Character.PARAGRAPH_SEPARATOR));
+    evidence.attach(
+        "Escaped scalar evidence regression", "Expected: " + display + "\nActual: safe");
+    assertFalse(evidence.body("{\"code\":\"synthetic\u202e\"}").contains("\u202e"));
+    try (MockApi mock = new MockApi()) {
+      mock.stub(
+          "GET",
+          "/users/7",
+          400,
+          JsonSupport.serialize(Map.of("code", value, "message", "Synthetic error")));
+      var contract =
+          new EndpointContract(
+              "Safe error assertion",
+              Method.GET,
+              "/users/{id}",
+              BodyContract.empty(),
+              Map.of(400, ERROR),
+              GET.pathParameters(),
+              GET.queryParameters());
+      var response = mock.client().execute(contract, null, Map.of("id", 7), Map.of());
+      var failure =
+          assertThrows(AssertionError.class, () -> response.assertField("/code", "expected"));
+      assertFalse(failure.toString().contains("spoofed"));
+    }
+  }
+
+  @Test
   void transportTimeoutIsBoundedAndSanitized() {
     try (MockApi mock = new MockApi()) {
       mock.stub(

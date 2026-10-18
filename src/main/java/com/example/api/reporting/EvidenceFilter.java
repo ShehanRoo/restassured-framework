@@ -9,9 +9,11 @@ import io.restassured.specification.FilterableResponseSpecification;
 /** Attach before assertions so schema and semantic failures retain the exchange evidence. */
 public final class EvidenceFilter implements Filter {
   private final Evidence evidence;
+  private final String requestId;
 
-  public EvidenceFilter(Evidence evidence) {
+  public EvidenceFilter(Evidence evidence, String requestId) {
     this.evidence = evidence;
+    this.requestId = requestId;
   }
 
   @Override
@@ -24,13 +26,18 @@ public final class EvidenceFilter implements Filter {
       response = context.next(request, responseSpec);
     } catch (Exception exception) {
       evidence.attach(
-          "Transport failure", "HTTP exchange failed; endpoint and exception details withheld");
+          "Transport failure",
+          "Request ID: "
+              + requestId
+              + "\nHTTP exchange failed; endpoint and exception details withheld");
       throw new IllegalStateException(
           "HTTP exchange failed; check connectivity, certificates and timeouts");
     }
     evidence.attach(
         "HTTP response",
-        "Status: "
+        "Request ID: "
+            + requestId
+            + "\nStatus: "
             + response.statusCode()
             + "\n"
             + evidence.headers(response.headers())

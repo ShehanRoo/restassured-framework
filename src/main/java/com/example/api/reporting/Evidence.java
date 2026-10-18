@@ -31,7 +31,8 @@ public final class Evidence {
       return "[body omitted: evidence size limit]";
     }
     try {
-      return cap(config.scrubKnownSecret(JsonSupport.pretty(sanitize(JsonSupport.parse(body)))));
+      return displaySafe(
+          config.scrubKnownSecret(JsonSupport.pretty(sanitize(JsonSupport.parse(body)))));
     } catch (Exception exception) {
       return "[body omitted: not valid JSON]";
     }
@@ -132,7 +133,12 @@ public final class Evidence {
       return "[REDACTED]";
     }
     if (JsonSupport.isJsonScalar(value)) {
-      return cap(config.scrubKnownSecret(String.valueOf(value)));
+      try {
+        // JSON literals escape CR/LF, tabs and terminal controls inside scalar values.
+        return displaySafe(config.scrubKnownSecret(JsonSupport.serialize(value)));
+      } catch (Exception exception) {
+        return "[value omitted: cannot encode safely]";
+      }
     }
     return "[structured value omitted]";
   }
@@ -144,7 +150,37 @@ public final class Evidence {
   }
 
   public void attach(String name, String content) {
-    Allure.addAttachment(name, "text/plain", cap(config.scrubKnownSecret(content)), ".txt");
+    Allure.addAttachment(name, "text/plain", displaySafe(config.scrubKnownSecret(content)), ".txt");
+  }
+
+  private static String displaySafe(String text) {
+    StringBuilder safe = new StringBuilder();
+    String hex = "0123456789abcdef";
+    for (int offset = 0; offset < text.length(); ) {
+      int point = text.codePointAt(offset);
+      int units = Character.charCount(point);
+      int type = Character.getType(point);
+      boolean escape =
+          type == Character.FORMAT
+              || type == Character.LINE_SEPARATOR
+              || type == Character.PARAGRAPH_SEPARATOR;
+      if (safe.length() + units * (escape ? 6 : 1) > MAX_ATTACHMENT) {
+        return safe.append("\n[truncated]").toString();
+      }
+      if (escape) {
+        for (char unit : Character.toChars(point)) {
+          safe.append("\\u")
+              .append(hex.charAt((unit >>> 12) & 15))
+              .append(hex.charAt((unit >>> 8) & 15))
+              .append(hex.charAt((unit >>> 4) & 15))
+              .append(hex.charAt(unit & 15));
+        }
+      } else {
+        safe.appendCodePoint(point);
+      }
+      offset += units;
+    }
+    return safe.toString();
   }
 
   private static String cap(String text) {

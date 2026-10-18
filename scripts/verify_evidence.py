@@ -8,6 +8,7 @@ import shutil
 import base64
 import re
 import zipfile
+import unicodedata
 
 ROOT = Path(__file__).resolve().parents[1]
 CANARY = "synthetic-security-canary-42"
@@ -17,6 +18,13 @@ def steps(items):
     for item in items:
         yield item
         yield from steps(item.get("steps", []))
+
+
+def verify_attachment_text(content: str) -> None:
+    # Newlines delimit trusted labels; untrusted scalar newlines must be JSON-escaped.
+    if any(char != "\n" and unicodedata.category(char) in {"Cc", "Cf", "Zl", "Zp"}
+           for char in content):
+        raise AssertionError("Unsafe display control in text evidence")
 
 
 def purge_default_artifacts() -> None:
@@ -43,6 +51,9 @@ def verify(require_failure: bool) -> None:
         for item in [record, *steps(record.get("steps", []))]:
             attached_names.update(attachment["name"] for attachment in item.get("attachments", []))
     assert {"HTTP request", "HTTP response"}.issubset(attached_names), "HTTP evidence missing"
+    for path in results.glob("*-attachment.txt"):
+        # Preserve CR bytes; universal-newline decoding would turn spoofed CR into allowed LF.
+        verify_attachment_text(path.read_bytes().decode("utf-8"))
     for directory in [results, ROOT / "target/surefire-reports", ROOT / "target/allure-report"]:
         for path in directory.rglob("*"):
             if path.is_file() and CANARY.encode() in path.read_bytes():
